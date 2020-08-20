@@ -1,5 +1,10 @@
 ﻿<# Start Functions #>
 function ConvertTo-ALACDirectory($folderPath, $targetDecibels = "-16", $threshold = ".25", $maxPeak = "-.25", $logPath = "$($folderPath)\ALACBalancer.log", [switch]$unluckyMode) {
+    Move-Item -LiteralPath $folderPath -Destination "$($folderPath.Replace('[','(').Replace(']',')'))" -Force -ErrorAction SilentlyContinue -Confirm:$false
+    $folderPath = "$($folderPath.Replace('[','(').Replace(']',')'))"
+    $logPath = "$($logPath.Replace('[','(').Replace(']',')'))"
+
+    New-ALACLog -logPath $logPath -message "# Checking FFMpeg in ConvertTo-ALACDirectory"
     if ($env:ffmpeg) {
         Write-host -ForegroundColor Green "FFmpeg loaded."
     }
@@ -18,12 +23,27 @@ function ConvertTo-ALACDirectory($folderPath, $targetDecibels = "-16", $threshol
         exit
     }
 
-
     if ($unluckyMode) {
         New-ALACLog -logPath $logPath -message 'I''m feeling unlucky.'
+        New-ALACLog -logPath $logPath -message "While unlucky mode is less dangerous, do remember to clean out the temp folder: ""$($env:LOCALAPPDATA)`\Temp\ConvertTo-LeveledALAC""."
+        New-ALACLog -logPath $logPath -message "I'm about to leave a shit-load of files in there..."
     }
+
+    New-ALACLog -logPath $logPath -message "# Moving to Main ConvertTo-ALACDirectory loop"
+
+    # Main ConvertTo-ALACDirectory loop
     if (Test-Path -LiteralPath $folderPath) {
-        $files = Get-Childitem $folderPath -Recurse | Select-Object * | Where-Object { $_.extension -eq ".m4a", ".opus", ".wav", ".mp3", ".flac" } | Sort-Object -Descending
+        New-ALACLog -logPath $logPath -message '# Main ConvertTo-ALACDirectory loop'
+        $files = Get-Childitem $folderPath -Recurse | Select-Object * | Where-Object { $_.extension -in ".m4a", ".opus", ".wav", ".mp3", ".flac" }
+        
+        if ($files) {
+            New-ALACLog -logPath $logPath -message "Files found:" 
+            New-ALACLog -logPath $logPath -message "$($files)"
+        }
+        else {
+            New-ALACLog -logPath $logPath -message "I find your lack of files disturbing"
+        }
+
         foreach ($file in $files) {
             if ($unluckyMode) {
                 ConvertTo-LeveledALAC -filePath $file.fullname -targetDecibels $targetDecibels -threshold $threshold -maxPeak $maxPeak -logPath $logPath -unluckyMode
@@ -39,12 +59,20 @@ function ConvertTo-ALACDirectory($folderPath, $targetDecibels = "-16", $threshol
         New-ALACLog -logPath $logPath -message $folderPath
         break; 
     }
+
 }
 
 function ConvertTo-LeveledALAC($filePath, $targetDecibels = "-16", $threshold = ".25", $maxPeak = "-.25", $logPath = "$($filePath)`.log", [switch]$unluckyMode) {
+    Move-Item -LiteralPath $filePath -Destination "$($filePath.Replace('[','(').Replace(']',')'))" -Force -ErrorAction SilentlyContinue -Confirm:$false
+    $filePath = "$($filePath.Replace('[','(').Replace(']',')'))"
+    $logPath = "$($logPath.Replace('[','(').Replace(']',')'))"
+    New-ALACLog -logPath $logPath -message "Sanitized path. I can't deal with square brackets."
+    $tempFile = "$($env:LOCALAPPDATA)`\Temp\ConvertTo-LeveledALAC\$($filePath | Split-Path -Leaf)"
     New-ALACLog -logPath $logPath -message "Processing file ""$($filePath)""."
-    if (Test-Path -LiteralPath $filePath) {
-        $Path = $filePath | Split-Path -Parent
+    if (Test-Path $filePath -ErrorAction SilentlyContinue) {
+        New-Item -Path "$($env:LOCALAPPDATA)`\Temp" -Name ConvertTo-LeveledALAC -ItemType Directory -Force -ErrorAction SilentlyContinue
+        Copy-Item -LiteralPath $filePath -Destination $tempFile -Force -Confirm:$false -ErrorAction SilentlyContinue
+        $Path = $tempFile | Split-Path -Parent
         $dataFile = "$Path\LoudnessData.log"
         <# Feature: Volume Validation and DR Info
         $rangeLog = "$Path\DR_log.txt"
@@ -58,7 +86,7 @@ function ConvertTo-LeveledALAC($filePath, $targetDecibels = "-16", $threshold = 
         break; 
     }
     New-ALACLog -logPath $logPath -message "Reading loudness data."
-    $data = Get-LoudnessData -filePath $filePath -dataFile $dataFile -logPath $logPath
+    $data = Get-LoudnessData -filePath $tempFile -dataFile $dataFile -logPath $logPath
     New-ALACLog -logPath $logPath -message "Average Volume: $($data.input_i)dB. True Peak: $($data.input_tp)dB."
     if ($data) {
         New-ALACLog -logPath $logPath -message "Calculating volume adjustment."
@@ -74,28 +102,29 @@ function ConvertTo-LeveledALAC($filePath, $targetDecibels = "-16", $threshold = 
         }
         if ([math]::abs($volAdjust) -gt [math]::abs($threshold)) {
             if ($unluckyMode) {
-                New-ALACLog -logPath $logPath -message "Feeling lucky, punk? Adjusting volume of ""$($filePath)"" by $($volAdjust)dB to target average of $($targetDecibels)`dB without leaving a backup."
-                New-LeveledALAC -filePath $filePath -volAdjust $volAdjust -logPath $logPath -dataFile $dataFile
+                New-ALACLog -logPath $logPath -message "Adjusting volume of ""$($filePath)"" by $($volAdjust)dB to target average of $($targetDecibels)`dB, and leaving a backup."
+                $newFile = New-LeveledALAC -filePath $tempFile -volAdjust $volAdjust -logPath $logPath -dataFile $dataFile -unluckyMode
                 $data.input_i = $data.input_i + $volAdjust
                 $data.input_tp = $data.input_tp + $volAdjust
+                Move-Item -LiteralPath $filePath -Destination "$($filePath | Split-Path -Parent)`\(backup) $($filePath | Split-Path -Leaf)" -Force -Confirm:$false
+                Copy-Item -LiteralPath $newFile -Destination "$($filePath | Split-Path -Parent)`\$($newFile | Split-Path -Leaf)" -Force -Confirm:$false
             }
             else {
-                New-ALACLog -logPath $logPath -message "Adjusting volume of ""$($filePath)"" by $($volAdjust)dB to target average of $($targetDecibels)`dB, and leaving a backup."
-                New-LeveledALAC -filePath $filePath -volAdjust $volAdjust -logPath $logPath -dataFile $dataFile -unluckyMode
+                New-ALACLog -logPath $logPath -message "Feeling lucky, punk? Adjusting volume of ""$($filePath)"" by $($volAdjust)dB to target average of $($targetDecibels)`dB without leaving a backup."
+                $newFile = New-LeveledALAC -filePath $tempFile -volAdjust $volAdjust -logPath $logPath -dataFile $dataFile
+                # $data.input_i = -10.19
                 $data.input_i = $data.input_i + $volAdjust
+                # $data.input_tp = 0.50
                 $data.input_tp = $data.input_tp + $volAdjust
+                Remove-Item -LiteralPath $filePath -Force -Confirm:$false
+                Move-Item -LiteralPath $newFile -Destination "$($filePath | Split-Path -Parent)`\$(($filePath | Split-Path -Leaf).Replace('[','(').Replace(']',')'))" -Force -Confirm:$false
             }
         }
         else {
             New-ALACLog -logPath $logPath -message "$($filePath) is already within the threshold. Cleaning up and moving on!"
-            if ($logPath -eq "$filePath`.log") {
-                Write-Host -ForegroundColor Green "$($filePath) is already within the threshold. Cleaning up!"
-                Remove-Item "$filePath`.log" -Force -Confirm:$false
-                Remove-Item $dataFile -Force -Confirm:$false
-            }
-            else { 
-                Remove-Item $dataFile -Force -Confirm:$false
-            }
+            Remove-Item $tempFile -Force -Confirm:$false -ErrorAction SilentlyContinue
+            Remove-Item $dataFile -Force -Confirm:$false -ErrorAction SilentlyContinue
+            Remove-Item "$tempFile`.log" -Force -Confirm:$false -ErrorAction SilentlyContinue
         }
     }
     else { 
@@ -125,19 +154,18 @@ function Get-LoudnessData($filePath, $dataFile = "$($filePath)`.data.log", $logP
 function Compare-LoudnessData($dataFile, $logPath = "$($dataFile)`.log") {
     if (Test-Path -LiteralPath $dataFile) {
         $rawData = Get-Content -Path $dataFile -Tail 12;
-        $data = @{
-            input_i            = $rawData[-11].split('"')[3];
-            input_tp           = $rawData[-10].split('"')[3];
-            input_lra          = $rawData[-9].split('"')[3];
-            input_thresh       = $rawData[-8].split('"')[3];
-            output_i           = $rawData[-7].split('"')[3];
-            output_tp          = $rawData[-6].split('"')[3];
-            output_lra         = $rawData[-5].split('"')[3];
-            output_thresh      = $rawData[-4].split('"')[3];
-            normalization_type = $rawData[-3].split('"')[3];
-            target_offset      = $rawData[-2].split('"')[3];
-            DR                 = $data.input_tp - $data.input_i
-        }
+        $data = @{}
+        [double]$data.input_i = $rawData[-11].split('"')[3];
+        [double]$data.input_tp = $rawData[-10].split('"')[3];
+        [double]$data.input_lra = $rawData[-9].split('"')[3];
+        [double]$data.input_thresh = $rawData[-8].split('"')[3];
+        [double]$data.output_i = $rawData[-7].split('"')[3];
+        [double]$data.output_tp = $rawData[-6].split('"')[3];
+        [double]$data.output_lra = $rawData[-5].split('"')[3];
+        [double]$data.output_thresh = $rawData[-4].split('"')[3];
+        $data.normalization_type = $rawData[-3].split('"')[3];
+        [double]$data.target_offset = $rawData[-2].split('"')[3];
+        [double]$data.DR = $data.input_tp - $data.input_i
     }
     else { 
         New-ALACLog -logPath $logPath -message '## Break in Compare-LoudnessData: $dataFile doesn''t exist.'
@@ -173,8 +201,8 @@ function New-LeveledALAC($filePath, $volAdjust, $dataFile, $logPath = "$($filePa
     Move-Item -LiteralPath $filePath -Destination $tempPath -Force
     $arg2 = ' -i "{0}" -filter:a "volume={1}dB" -c:v copy -map_metadata:s:a 0:s:a -acodec alac -ar 44100 -sample_fmt s16p "{2}"' -f $tempPath, $volAdjust, $newPath
     Start-Process -FilePath $env:ffmpeg -ArgumentList $arg2 -RedirectStandardError $dataFile -NoNewWindow -Wait
-    if ($unluckyMode) {
-        Remove-Item -LiteralPath $logPath -Confirm:$false
+    if (!($unluckyMode)) {
+        # Remove-Item -LiteralPath $logPath -Confirm:$false
         Remove-Item -LiteralPath $tempPath -Confirm:$false
         Remove-Item -LiteralPath $dataFile -Confirm:$false
     } 
@@ -184,6 +212,7 @@ function New-LeveledALAC($filePath, $volAdjust, $dataFile, $logPath = "$($filePa
             Remove-Item -LiteralPath $dataFile -Confirm:$false
         }
     }
+    return $newPath
 }
 
 function New-ALACLog($logPath, $message) {
