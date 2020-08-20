@@ -100,7 +100,8 @@ function ConvertTo-LeveledALAC($filePath, $targetDecibels = "-16", $threshold = 
         else { 
             New-ALACLog -logPath $logPath -message 'Plenty of space on the other side of that peak...trust me. Rabbit is good, Rabbit is wise.'
         }
-        if ([math]::abs($volAdjust) -gt [math]::abs($threshold)) {
+        # if ([math]::abs($volAdjust) -gt [math]::abs($threshold)) {
+        if (([math]::abs($volAdjust) -gt [math]::abs($threshold)) -or (!([io.path]::GetExtension($filePath) -in '.m4a'))) {
             if ($unluckyMode) {
                 New-ALACLog -logPath $logPath -message "Adjusting volume of ""$($filePath)"" by $($volAdjust)dB to target average of $($targetDecibels)`dB, and leaving a backup."
                 $newFile = New-LeveledALAC -filePath $tempFile -volAdjust $volAdjust -logPath $logPath -dataFile $dataFile -unluckyMode
@@ -117,7 +118,7 @@ function ConvertTo-LeveledALAC($filePath, $targetDecibels = "-16", $threshold = 
                 # $data.input_tp = 0.50
                 $data.input_tp = $data.input_tp + $volAdjust
                 Remove-Item -LiteralPath $filePath -Force -Confirm:$false
-                Move-Item -LiteralPath $newFile -Destination "$($filePath | Split-Path -Parent)`\$(($filePath | Split-Path -Leaf).Replace('[','(').Replace(']',')'))" -Force -Confirm:$false
+                Move-Item -LiteralPath $newFile -Destination "$($filePath | Split-Path -Parent)`\$(($newFile | Split-Path -Leaf).Replace('[','(').Replace(']',')'))" -Force -Confirm:$false
             }
         }
         else {
@@ -220,3 +221,11 @@ function New-ALACLog($logPath, $message) {
     $message | Out-File -LiteralPath $logPath -Encoding ascii -Append
 }
 <# End Functions #>
+
+<# Recent fixes 
+
+Line 120: I goofed. I had the script move the new ALAC file back to the original location as the original file name, including the wrong extension.
+
+Line 103: Speaking of wrong extensions, I also had the script process the file to ALAC if the file doesn't have the .m4a extension.
+
+#>
