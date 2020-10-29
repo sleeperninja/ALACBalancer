@@ -8,6 +8,11 @@ function ConvertTo-ALACDirectory($folderPath, $targetDecibels = "-16", $threshol
     if ($env:ffmpeg) {
         Write-host -ForegroundColor Green "FFmpeg loaded."
     }
+    elseif (Test-Path "C:\programdata\Chocolatey\bin\ffmpeg.exe") {
+        #set path to ffmpeg here
+        $env:ffmpeg = "C:\programdata\Chocolatey\bin\ffmpeg.exe"
+        Write-Host -ForegroundColor Yellow "FFmpeg found in Chocolatey binaries. Env set. FFmpeg loaded."
+    }
     elseif (Test-Path "C:\program files\ffmpeg\bin\ffmpeg.exe") {
         #set path to ffmpeg here
         $env:ffmpeg = "C:\program files\ffmpeg\bin\ffmpeg.exe"
