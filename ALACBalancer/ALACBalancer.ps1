@@ -1,9 +1,5 @@
 ﻿<# Start Functions #>
-function ConvertTo-ALACDirectory($folderPath, $targetDecibels = "-16", $threshold = ".25", $maxPeak = "-.25", $logPath = "$($folderPath)\ALACBalancer.log", [switch]$unluckyMode) {
-    Move-Item -LiteralPath $folderPath -Destination "$($folderPath.Replace('[','(').Replace(']',')'))" -Force -ErrorAction SilentlyContinue -Confirm:$false
-    $folderPath = "$($folderPath.Replace('[','(').Replace(']',')'))"
-    $logPath = "$($logPath.Replace('[','(').Replace(']',')'))"
-
+function ConvertTo-ALACDirectory($folderPath, $targetDecibels = "-18", $threshold = ".25", $maxPeak = "-.01", $logPath = "$($folderPath)\ALACBalancer.log", [switch]$unluckyMode) {
     New-ALACLog -logPath $logPath -message "# Checking FFMpeg in ConvertTo-ALACDirectory"
     if ($env:ffmpeg) {
         Write-host -ForegroundColor Green "FFmpeg loaded."
@@ -74,18 +70,13 @@ function ConvertTo-ALACDirectory($folderPath, $targetDecibels = "-16", $threshol
 
 }
 
-function ConvertTo-LeveledALAC($filePath, $targetDecibels = "-16", $threshold = ".25", $maxPeak = "-.25", $logPath = "$($filePath)`.log", [switch]$unluckyMode) {
-    Move-Item -LiteralPath $filePath -Destination "$($filePath.Replace('[','(').Replace(']',')'))" -Force -ErrorAction SilentlyContinue -Confirm:$false
-    $filePath = "$($filePath.Replace('[','(').Replace(']',')'))"
-    $logPath = "$($logPath.Replace('[','(').Replace(']',')'))"
-    New-ALACLog -logPath $logPath -message "Sanitizing path because PowerShell do funny things with square brackets."
+function ConvertTo-LeveledALAC($filePath, $targetDecibels = "-18", $threshold = ".25", $maxPeak = "-.01", $logPath = "$($filePath)`.log", [switch]$unluckyMode) {
     $tempFile = "$($env:LOCALAPPDATA)`\Temp\ConvertTo-LeveledALAC\$($filePath | Split-Path -Leaf)"
     New-ALACLog -logPath $logPath -message "Processing file ""$($filePath)""."
-    if (Test-Path $filePath -ErrorAction SilentlyContinue) {
+    if (Test-Path -LiteralPath $filePath -ErrorAction SilentlyContinue) {
         New-Item -Path "$($env:LOCALAPPDATA)`\Temp" -Name ConvertTo-LeveledALAC -ItemType Directory -Force -ErrorAction SilentlyContinue
         Copy-Item -LiteralPath $filePath -Destination $tempFile -Force -Confirm:$false -ErrorAction SilentlyContinue
         $Path = $tempFile | Split-Path -Parent
-        $dataFile = "$Path\LoudnessData.log"
         <# Feature: Volume Validation and DR Info
         $rangeLog = "$Path\DR_log.txt"
         $rangeLock = $false
@@ -98,7 +89,7 @@ function ConvertTo-LeveledALAC($filePath, $targetDecibels = "-16", $threshold = 
         break; 
     }
     New-ALACLog -logPath $logPath -message "Reading loudness data."
-    $data = Get-LoudnessData -filePath $tempFile -dataFile $dataFile -logPath $logPath
+    $data = Get-LoudnessData -filePath $tempFile -logPath $logPath
 
     New-ALACLog -logPath $logPath -message "Average Volume: $($data.input_i)dB. True Peak: $($data.input_tp)dB."
     if ($data) {
@@ -121,33 +112,33 @@ function ConvertTo-LeveledALAC($filePath, $targetDecibels = "-16", $threshold = 
                     Write-Host -ForegroundColor DarkGreen "Adjusting " -NoNewline
                     Write-Host -ForegroundColor Green "$($filePath | Split-Path -Leaf) " -NoNewline
                     Write-Host -ForegroundColor DarkGreen "by $($volAdjust)dB in unluckyMode"
-                    $newFile = New-LeveledALAC -filePath $tempFile -volAdjust $volAdjust -logPath $logPath -dataFile $dataFile -unluckyMode
+                    $newFile = New-LeveledALAC -filePath $tempFile -volAdjust $volAdjust -logPath $logPath -unluckyMode
                     $data.input_i = $data.input_i + $volAdjust
                     $data.input_tp = $data.input_tp + $volAdjust
-                    Move-Item -LiteralPath $filePath -Destination "$($filePath | Split-Path -Parent)`\(backup) $($filePath | Split-Path -Leaf)" -Force -Confirm:$false
-                    Copy-Item -LiteralPath $newFile -Destination "$($filePath | Split-Path -Parent)`\$($newFile | Split-Path -Leaf)" -Force -Confirm:$false
+                    $backupPath = "$($filePath | Split-Path -Parent)\(backup) $($filePath | Split-Path -Leaf)"
+                    Move-Item -LiteralPath $filePath -Destination $backupPath -Force -Confirm:$false
+                    Copy-Item -LiteralPath $newFile -Destination $filePath -Force -Confirm:$false
                 }
                 else {
                     New-ALACLog -logPath $logPath -message "Feeling lucky, punk? Adjusting volume of ""$($filePath)"" by $($volAdjust)dB to target average of $($targetDecibels)`dB without leaving a backup."
                     Write-Host -ForegroundColor DarkGreen "Adjusting " -NoNewline
                     Write-Host -ForegroundColor Green "$($filePath | Split-Path -Leaf) " -NoNewline
                     Write-Host -ForegroundColor DarkGreen "by $($volAdjust)dB."
-                    $newFile = New-LeveledALAC -filePath $tempFile -volAdjust $volAdjust -logPath $logPath -dataFile $dataFile
+                    $newFile = New-LeveledALAC -filePath $tempFile -volAdjust $volAdjust -logPath $logPath
                     # $data.input_i = -10.19
                     $data.input_i = $data.input_i + $volAdjust
                     # $data.input_tp = 0.50
                     $data.input_tp = $data.input_tp + $volAdjust
                     Remove-Item -LiteralPath $filePath -Force -Confirm:$false
-                    Move-Item -LiteralPath $newFile -Destination "$($filePath | Split-Path -Parent)`\$(($newFile | Split-Path -Leaf).Replace('[','(').Replace(']',')'))" -Force -Confirm:$false
+                    Move-Item -LiteralPath $newFile -Destination $filePath -Force -Confirm:$false
                 }
             } else {
                 New-ALACLog -logPath $logPath -message "I'm skipping $($filePath | split-path -Leaf). It's not me, it's you! $($filePath | split-path -Leaf) has a true peak of $($data.input_tp). You can't even hear it."
                 Write-Host -ForegroundColor DarkYellow "Skipping silent file: " -NoNewline
                 Write-Host -ForegroundColor Yellow " $($filePath | Split-Path -Leaf) " -NoNewline
                 Write-Host -ForegroundColor DarkYellow ": (TP = $($data.input_tp)db)"
-                Remove-Item $tempFile -Force -Confirm:$false -ErrorAction SilentlyContinue
-                Remove-Item $dataFile -Force -Confirm:$false -ErrorAction SilentlyContinue
-                Remove-Item "$tempFile`.log" -Force -Confirm:$false -ErrorAction SilentlyContinue
+                Remove-Item -LiteralPath $tempFile -Force -Confirm:$false -ErrorAction SilentlyContinue
+                Remove-Item -LiteralPath "$tempFile`.log" -Force -Confirm:$false -ErrorAction SilentlyContinue
             }
         }
         else {
@@ -155,9 +146,8 @@ function ConvertTo-LeveledALAC($filePath, $targetDecibels = "-16", $threshold = 
             Write-Host -ForegroundColor DarkYellow "Skipping " -NoNewline
             Write-Host -ForegroundColor Yellow "$($filePath)" -NoNewline
             Write-Host -ForegroundColor DarkYellow ": it's already everything it needs to be!"
-            Remove-Item $tempFile -Force -Confirm:$false -ErrorAction SilentlyContinue
-            Remove-Item $dataFile -Force -Confirm:$false -ErrorAction SilentlyContinue
-            Remove-Item "$tempFile`.log" -Force -Confirm:$false -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $tempFile -Force -Confirm:$false -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath "$tempFile`.log" -Force -Confirm:$false -ErrorAction SilentlyContinue
         }
     }
     else { 
@@ -171,48 +161,54 @@ function ConvertTo-LeveledALAC($filePath, $targetDecibels = "-16", $threshold = 
     }
 }
 
-function Get-LoudnessData($filePath, $dataFile = "$($filePath)`.data.log", $logPath = "$($filePath)`.log") {
-    #if($filePath -like '*`[*'){ 'true' }
+function Get-LoudnessData($filePath, $logPath = "$($filePath)`.log") {
     if (Test-Path -LiteralPath $filePath) {
-        $arg1 = ' -i "{0}" -af loudnorm=I=-15:TP=-1.0:LRA=1:print_format=json -f null -' -f $filePath
-        Start-Process -FilePath $env:ffmpeg -ArgumentList $arg1 -RedirectStandardError $dataFile -NoNewWindow -Wait
+        # Capture stderr output directly using proper argument array
+        $stderr = & $env:ffmpeg -i "$filePath" -af "loudnorm=I=-18:TP=-.01:LRA=1:print_format=json" -f null - 2>&1
+        $data = Compare-LoudnessData -rawOutput $stderr -logPath $logPath
+        return $data
     }
     else { 
         New-ALACLog -logPath $logPath -message '## Break in Get-LoudnessData: What is $filePath?'
-        New-ALACLog -logPath $logPath -message '#### $filePath contents:'
-        New-ALACLog -logPath $logPath -message $filePath
         break; 
     }
-    $data = Compare-LoudnessData -dataFile $dataFile
-    return $data
 }
 
-function Compare-LoudnessData($dataFile, $logPath = "$($dataFile)`.log") {
-    if (Test-Path -LiteralPath $dataFile) {
-        $rawData = Get-Content -Path $dataFile -Tail 12;
-        $data = @{}
-        [double]$data.input_i = $rawData[-11].split('"')[3].Replace('-inf','-96.33').Replace('inf','96.33');
-        [double]$data.input_tp = $rawData[-10].split('"')[3].Replace('-inf','-96.33').Replace('inf','96.33');
-        [double]$data.input_lra = $rawData[-9].split('"')[3].Replace('-inf','-96.33').Replace('inf','96.33');
-        [double]$data.input_thresh = $rawData[-8].split('"')[3].Replace('-inf','-96.33').Replace('inf','96.33');
-        [double]$data.output_i = $rawData[-7].split('"')[3].Replace('-inf','-96.33').Replace('inf','96.33');
-        [double]$data.output_tp = $rawData[-6].split('"')[3].Replace('-inf','-96.33').Replace('inf','96.33');
-        [double]$data.output_lra = $rawData[-5].split('"')[3].Replace('-inf','-96.33').Replace('inf','96.33');
-        [double]$data.output_thresh = $rawData[-4].split('"')[3].Replace('-inf','-96.33').Replace('inf','96.33');
-        $data.normalization_type = $rawData[-3].split('"')[3];
-        [double]$data.target_offset = $rawData[-2].split('"')[3].Replace('-inf','-96.33').Replace('inf','96.33');
-        [double]$data.DR = $data.input_tp - $data.input_i
+function Compare-LoudnessData($rawOutput, $logPath) {
+    # Find and extract JSON from the captured output
+    $jsonMatch = [regex]::Match($rawOutput, '\{\s*"input_i"[\s\S]*?"target_offset"\s*:\s*"[^"]*"\s*\}')
+    
+    if ($jsonMatch.Success) {
+        try {
+            $jsonData = $jsonMatch.Value | ConvertFrom-Json
+            
+            $data = @{}
+            [double]$data.input_i = [double]$jsonData.input_i
+            [double]$data.input_tp = [double]$jsonData.input_tp
+            [double]$data.input_lra = [double]$jsonData.input_lra
+            [double]$data.input_thresh = [double]$jsonData.input_thresh
+            [double]$data.output_i = [double]$jsonData.output_i
+            [double]$data.output_tp = [double]$jsonData.output_tp
+            [double]$data.output_lra = [double]$jsonData.output_lra
+            [double]$data.output_thresh = [double]$jsonData.output_thresh
+            $data.normalization_type = $jsonData.normalization_type
+            [double]$data.target_offset = [double]$jsonData.target_offset
+            [double]$data.DR = $data.input_tp - $data.input_i
+            
+            return $data
+        }
+        catch {
+            New-ALACLog -logPath $logPath -message "Failed to parse JSON: $_"
+            break;
+        }
     }
-    else { 
-        New-ALACLog -logPath $logPath -message '## Break in Compare-LoudnessData: $dataFile doesn''t exist.'
-        New-ALACLog -logPath $logPath -message '#### $dataFile contents:'
-        New-ALACLog -logPath $logPath -message $dataFile
-        break; 
+    else {
+        New-ALACLog -logPath $logPath -message "No JSON found in ffmpeg output"
+        break;
     }
-    Return $data
 }
 
-function New-LeveledALAC($filePath, $volAdjust, $dataFile, $logPath = "$($filePath)`.log", [switch]$unluckyMode) {
+function New-LeveledALAC($filePath, $volAdjust, $logPath = "$($filePath)`.log", [switch]$unluckyMode) {
     if ($null -eq $filePath) {
         New-ALACLog -logPath $logPath -message '## Break in New-LeveledALAC: $filePath is jacked.'
         New-ALACLog -logPath $logPath -message '#### $filePath contents:'
@@ -225,27 +221,21 @@ function New-LeveledALAC($filePath, $volAdjust, $dataFile, $logPath = "$($filePa
         New-ALACLog -logPath $logPath -message $volAdjust
         break;
     }
-    if ($null -eq $dataFile) {
-        New-ALACLog -logPath $logPath -message '## Break in New-LeveledALAC: $dataFile is jacked.'
-        New-ALACLog -logPath $logPath -message '#### $dataFile contents:'
-        New-ALACLog -logPath $logPath -message $dataFile
-        break;
-    }
     $tempPath = "$($filePath | Split-Path -Parent)\temp_$($filePath | split-path -leaf)"
     $newPath = "$($filePath | Split-Path -Parent)\$([io.path]::GetFileNameWithoutExtension($filePath))`.m4a"
     New-ALACLog -logPath $logPath -message "Creating temp copy of ""$filePath"""
     Move-Item -LiteralPath $filePath -Destination $tempPath -Force
     $arg2 = ' -i "{0}" -filter:a "volume={1}dB" -c:v copy -map_metadata:s:a 0:s:a -acodec alac -ar 44100 -sample_fmt s16p "{2}"' -f $tempPath, $volAdjust, $newPath
-    Start-Process -FilePath $env:ffmpeg -ArgumentList $arg2 -RedirectStandardError $dataFile -NoNewWindow -Wait
+    Start-Process -FilePath $env:ffmpeg -ArgumentList $arg2 -NoNewWindow -Wait
     if (!($unluckyMode)) {
         # Remove-Item -LiteralPath $logPath -Confirm:$false
         Remove-Item -LiteralPath $tempPath -Confirm:$false
-        Remove-Item -LiteralPath $dataFile -Confirm:$false
+        # Remove-Item -LiteralPath $dataFile -Confirm:$false
     } 
     else {
         if ((Get-ItemProperty $newPath).length -gt 0) {
             New-ALACLog -logPath $logPath -message "Good news. ""$newPath"" isn't null. Feel free to delete ""$tempPath""."
-            Remove-Item -LiteralPath $dataFile -Confirm:$false
+            # Remove-Item -LiteralPath $dataFile -Confirm:$false
         }
     }
     return $newPath
