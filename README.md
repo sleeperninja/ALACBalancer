@@ -6,6 +6,8 @@ This script utilizes FFmpeg's built in [EBU R 128 Loudness Normalization](https:
 
 ## Before You Run
 
+If you like ALACBalancer, I made it into a free fat app called [RangeForge](https://github.com/sleeperninja/RangeForge).
+
 FFmpeg.exe optimally should exist at "C:\program files\ffmpeg\bin\ffmpeg.exe" or "C:\program files (x86)\ffmpeg\bin\ffmpeg.exe". The script will set the location found as the environment variable $env:ffmpeg, which is used by the script to execute ffmpeg processes. FFmpeg can be installed in any location, as long as $env:ffmpeg contains that path.
 
 ## Usage
